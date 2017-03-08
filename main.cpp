@@ -17,19 +17,19 @@
 using namespace std;
 
 template <typename T> void memzero(const T & obj) {
-        std::memset( (void*) & obj , 0 , sizeof(T) );
+	std::memset( (void*) & obj , 0 , sizeof(T) );
 }
 
 template <typename T>
 class as_zerofill : public T {
-        public:
-                as_zerofill() {
-                        assert( sizeof(*this) == sizeof(T) ); // TODO move to static assert. sanity check. quote isostd
-                        void* baseptr = static_cast<void*>( dynamic_cast<T*>(this) );
-                        assert(baseptr == this); // TODO quote isostd
-                        memset( baseptr , 0 , sizeof(T) );
-                }
-                T& get() { return *this; }
+	public:
+		as_zerofill() {
+			assert( sizeof(*this) == sizeof(T) ); // TODO move to static assert. sanity check. quote isostd
+			void* baseptr = static_cast<void*>( dynamic_cast<T*>(this) );
+			assert(baseptr == this); // TODO quote isostd
+			memset( baseptr , 0 , sizeof(T) );
+		}
+		T& get() { return *this; }
 };
 
 /******************************************************************/
@@ -50,11 +50,11 @@ class c_tun_device_linux_asio final {
 };
 
 c_tun_device_linux_asio::c_tun_device_linux_asio(size_t number_of_threads)
-:
-	m_tun_fd(open("/dev/net/tun", O_RDWR)),
-	m_io_service(),
-	m_idle_work(m_io_service),
-	m_tun_handler(m_io_service, m_tun_fd)
+	:
+		m_tun_fd(open("/dev/net/tun", O_RDWR)),
+		m_io_service(),
+		m_idle_work(m_io_service),
+		m_tun_handler(m_io_service, m_tun_fd)
 {
 	if (!m_tun_handler.is_open()) throw std::runtime_error("TUN is not open");
 	for (size_t i = 0; i < number_of_threads; i++)
@@ -75,8 +75,8 @@ void c_tun_device_linux_asio::set_ipv6(const std::array<uint8_t, 16> &binary_add
 	std::cout << "IFNAMSIZ " << IFNAMSIZ << '\n';
 	auto errcode_ioctl =  ioctl(m_tun_fd, TUNSETIFF, static_cast<void *>(&ifr));
 	if (errcode_ioctl < 0) throw std::runtime_error("ioctl error");
-//	assert(binary_address[0] == 0xFD);
-//	assert(binary_address[1] == 0x42);
+	//	assert(binary_address[0] == 0xFD);
+	//	assert(binary_address[1] == 0x42);
 	NetPlatform_addAddress(ifr.ifr_name, binary_address.data(), prefixLen, Sockaddr_AF_INET6);
 	NetPlatform_setMTU(ifr.ifr_name, mtu);
 	m_tun_handler.release();
@@ -86,9 +86,6 @@ void c_tun_device_linux_asio::set_ipv6(const std::array<uint8_t, 16> &binary_add
 boost::asio::posix::stream_descriptor &c_tun_device_linux_asio::get_stream_descriptor() {
 	return m_tun_handler;
 }
-
-
-
 
 /******************************************************************/
 
@@ -109,8 +106,8 @@ struct c_packet_check {
 	bool packets_maybe_lost() const; ///< do we think now that some packets were lost?
 };
 
-c_packet_check::c_packet_check(size_t max_packet_index)
-	: m_seen( max_packet_index , false ), m_max_index(0)
+	c_packet_check::c_packet_check(size_t max_packet_index)
+: m_seen( max_packet_index , false ), m_max_index(0)
 { }
 
 bool c_packet_check::packets_maybe_lost() const {
@@ -151,7 +148,7 @@ void c_packet_check::print() const {
 		<<" Dupli="<<m_count_dupli
 		<<" Reord="<<m_count_reord
 		<<" Missing(now)=" << missing << " "
-			<< std::setw(3) << std::setprecision(2) << std::fixed << missing_part*100. << "%";
+		<< std::setw(3) << std::setprecision(2) << std::fixed << missing_part*100. << "%";
 
 	if (packets_maybe_lost()) out<<" LOST-PACKETS ";
 	else if (m_i_thought_lost) out<<" (packet seemed lost in past, but now all looks fine)";
@@ -159,14 +156,10 @@ void c_packet_check::print() const {
 	out<<endl;
 }
 
-
-
-
 #define global_config_end_after_packet (4*1000*1000)
 const int config_buf_size = 65535 * 1;
 
-
-int main() {
+int main(int argc, char **argv) {
 	c_tun_device_linux_asio tun_device(1);
 	std::array<uint8_t, 16> ip_address;
 	ip_address.fill(0x80);
@@ -174,33 +167,45 @@ int main() {
 	ip_address.at(1) = 0x00;
 	tun_device.set_ipv6(ip_address, 8, 65500);
 
+	int number_of_threads;
 
-	std::cout << "Entering the event loop\n";
+	vector <string> args;
+	for (int i=0; i<argc; ++i) args.push_back(argv[i]);
+
+	auto it = std::find(args.begin(), args.end(), "-j");
+	if (it != args.end())
+		number_of_threads = atoi((++it)->c_str());
+	else
+		number_of_threads = 1;
+
 	c_counter counter    (std::chrono::seconds(1),true);
 	c_counter counter_big(std::chrono::seconds(3),true);
 	c_counter counter_all(std::chrono::seconds(999999),true);
 
-	fd_set fd_set_data;
-
-	const int buf_size = config_buf_size;
-	unsigned char buf[buf_size];
-	const bool dbg_tun_data=1;
-	int dbg_tun_data_nr = 0; // how many times we shown it
-
 	c_packet_check packet_check(10*1000*1000);
 
-	bool warned_marker=false; // ever warned about marker yet?
+	auto loop = [&](){
+		std::cout << "Entering the event loop\n";
 
-	size_t loop_nr=0;
+		fd_set fd_set_data;
 
-	while (1) {
-		++loop_nr;
-		ssize_t size_read_tun=0, size_read_udp=0;
-		const unsigned char xorpass=42;
-		auto size_read=0;
-		//size_read += read(m_tun_fd, buf, sizeof(buf));
-		size_read += tun_device.get_stream_descriptor().read_some(boost::asio::buffer(buf, sizeof(buf)));
-		const int mark1_pos = 52;
+		const int buf_size = config_buf_size;
+		unsigned char buf[buf_size];
+		const bool dbg_tun_data=1;
+		int dbg_tun_data_nr = 0; // how many times we shown it
+
+		bool warned_marker=false; // ever warned about marker yet?
+
+		size_t loop_nr=0;
+
+		while (1) {
+			++loop_nr;
+			ssize_t size_read_tun=0, size_read_udp=0;
+			const unsigned char xorpass=42;
+			auto size_read=0;
+			//size_read += read(m_tun_fd, buf, sizeof(buf));
+			size_read += tun_device.get_stream_descriptor().read_some(boost::asio::buffer(buf, sizeof(buf)));
+			const int mark1_pos = 52;
 			bool mark_ok = true;
 			if (!(  (buf[mark1_pos]==100) && (buf[mark1_pos+1]==101) &&  (buf[mark1_pos+2]==102)  )) mark_ok=false;
 
@@ -210,13 +215,13 @@ int main() {
 				// _info("packet_index " << packet_index);
 
 				if (packet_index >= global_config_end_after_packet ) {
-						cout << "LIMIT - END " << endl << endl;
+					cout << "LIMIT - END " << endl << endl;
 					std::cout << "Limit - ending test\n";
 					break ;
 				} // <====== RET
 
 				packet_check.see_packet(packet_index);
-	//			packet_stats.see_size( size_read ); // TODO
+				//			packet_stats.see_size( size_read ); // TODO
 			}
 			if ( buf[size_read-10] != 'X') {
 				if (!warned_marker) std::cout << "Wrong marker X\n";
@@ -229,8 +234,8 @@ int main() {
 				mark_ok=false;
 			}
 
-	//		if (!mark_ok) _info("Packet has not expected UDP data! (wrong data read from TUN?) other then "
-	//			"should be sent by our ipclient test program");
+			//		if (!mark_ok) _info("Packet has not expected UDP data! (wrong data read from TUN?) other then "
+			//			"should be sent by our ipclient test program");
 
 			if (dbg_tun_data && dbg_tun_data_nr<5) {
 				++dbg_tun_data_nr;
@@ -250,15 +255,27 @@ int main() {
 
 			size_read_tun += size_read;
 
-		bool printed=false;
-		printed = printed || counter.tick(size_read_tun, std::cout);
-		bool printed_big = counter_big.tick(size_read_tun, std::cout);
-		printed = printed || printed_big;
-		if (printed_big) packet_check.print();
-		counter_all.tick(size_read_tun, std::cout, true);
-	}
+			bool printed=false;
+			printed = printed || counter.tick(size_read_tun, std::cout);
+			bool printed_big = counter_big.tick(size_read_tun, std::cout);
+			printed = printed || printed_big;
+			if (printed_big) packet_check.print();
+			counter_all.tick(size_read_tun, std::cout, true);
+		}
 
-	std::cout << "Loop done\n";
+		std::cout << "Loop done\n";
+	};
+	if (number_of_threads > 10 && number_of_threads > 0)
+		number_of_threads = 1;
+
+	std::vector<std::thread> threads(number_of_threads - 1);
+	for(int i = 0; i< number_of_threads - 1; i++)
+		threads[i] = std::thread([&](){loop();});
+
+	loop();
+
+	for(int i = 0; i< number_of_threads - 1; i++)
+		threads[i].join();
 
 	std::cout << endl << endl;
 	counter_all.print(std::cout);
