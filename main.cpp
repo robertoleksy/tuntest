@@ -62,7 +62,10 @@ c_tun_device_linux_asio::c_tun_device_linux_asio(size_t number_of_threads)
 {
 	if (!m_tun_handler.is_open()) throw std::runtime_error("TUN is not open");
 	for (size_t i = 0; i < number_of_threads; i++)
-		m_io_service_threads.emplace_back([this]{m_io_service.run();});
+		m_io_service_threads.emplace_back([this] {
+			std::cout << "start asio thread\n";
+			m_io_service.run();
+		});
 }
 
 c_tun_device_linux_asio::~c_tun_device_linux_asio() {
@@ -164,12 +167,6 @@ void c_packet_check::print() const {
 const int config_buf_size = 65535 * 1;
 
 int main(int argc, char **argv) {
-	c_tun_device_linux_asio tun_device(1);
-	std::array<uint8_t, 16> ip_address;
-	ip_address.fill(0x80);
-	ip_address.at(0) = 0xFD;
-	ip_address.at(1) = 0x00;
-	tun_device.set_ipv6(ip_address, 8, 65500);
 
 	int number_of_threads;
 
@@ -181,6 +178,14 @@ int main(int argc, char **argv) {
 		number_of_threads = atoi((++it)->c_str());
 	else
 		number_of_threads = 1;
+	std::cout << "number of threads " << number_of_threads << '\n';
+
+	c_tun_device_linux_asio tun_device(number_of_threads);
+	std::array<uint8_t, 16> ip_address;
+	ip_address.fill(0x80);
+	ip_address.at(0) = 0xFD;
+	ip_address.at(1) = 0x00;
+	tun_device.set_ipv6(ip_address, 8, 65500);
 
 	c_counter counter    (std::chrono::seconds(1),true);
 	c_counter counter_big(std::chrono::seconds(3),true);
@@ -233,13 +238,13 @@ int main(int argc, char **argv) {
 				if (packet_index >= global_config_end_after_packet ) {
 					cout << "LIMIT - END " << endl << endl;
 					std::cout << "Limit - ending test\n";
-//					break ;
+					break ;
 				} // <====== RET
 
 				packet_check.see_packet(packet_index);
 				//			packet_stats.see_size( size_read ); // TODO
 			}
-			if ( buf[size_read-10] != 'X') {
+/*			if ( buf[size_read-10] != 'X') {
 				if (!warned_marker) std::cout << "Wrong marker X\n";
 				warned_marker=true;
 				mark_ok=false;
@@ -248,7 +253,7 @@ int main(int argc, char **argv) {
 				if (!warned_marker) std::cout << "Wrong marker E\n";
 				warned_marker=true;
 				mark_ok=false;
-			}
+			}*/
 
 			//		if (!mark_ok) _info("Packet has not expected UDP data! (wrong data read from TUN?) other then "
 			//			"should be sent by our ipclient test program");
