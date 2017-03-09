@@ -3,7 +3,8 @@
 
 class c_counter {
 	public:
-		typedef long long int t_count;
+		//typedef long long int t_count;
+		using t_count = long long int ;
 		typedef std::chrono::steady_clock::time_point t_timepoint;
 		typedef std::chrono::duration<double> t_duration;
 

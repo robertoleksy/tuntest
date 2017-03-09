@@ -1,6 +1,9 @@
+#include <algorithm>
+#include <atomic>
 #include <array>
 #include <boost/asio.hpp>
 #include <chrono>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <thread>
@@ -39,8 +42,8 @@ class c_tun_device_linux_asio final {
 		c_tun_device_linux_asio(size_t number_of_threads);
 		~c_tun_device_linux_asio();
 		void set_ipv6(const std::array<uint8_t, 16> &binary_address, int prefixLen, uint32_t mtu);
-		void set_mtu(uint32_t mtu);
 		boost::asio::posix::stream_descriptor &get_stream_descriptor();
+		std::atomic<size_t> send_data_size;
 	private:
 		const int m_tun_fd;
 		boost::asio::io_service m_io_service;
@@ -51,6 +54,7 @@ class c_tun_device_linux_asio final {
 
 c_tun_device_linux_asio::c_tun_device_linux_asio(size_t number_of_threads)
 	:
+		send_data_size(0),
 		m_tun_fd(open("/dev/net/tun", O_RDWR)),
 		m_io_service(),
 		m_idle_work(m_io_service),
@@ -184,13 +188,16 @@ int main(int argc, char **argv) {
 
 	c_packet_check packet_check(10*1000*1000);
 
-	auto loop = [&](){
+//	auto loop = [&](){
 		std::cout << "Entering the event loop\n";
 
 		fd_set fd_set_data;
 
 		const int buf_size = config_buf_size;
 		unsigned char buf[buf_size];
+		std::vector<std::vector<unsigned char>> buffers_vector(number_of_threads, std::vector<unsigned char>(buf_size));
+
+
 		const bool dbg_tun_data=1;
 		int dbg_tun_data_nr = 0; // how many times we shown it
 
@@ -198,13 +205,22 @@ int main(int argc, char **argv) {
 
 		size_t loop_nr=0;
 
+		tun_device.get_stream_descriptor().read_some(boost::asio::buffer(buf, sizeof(buf)));
+		std::function<void(const boost::system::error_code& error, std::size_t bytes_transferred)> write_lambda =
+			[&](const boost::system::error_code& error, std::size_t bytes_transferred) {
+			if (error) return;
+				tun_device.send_data_size += bytes_transferred;
+				tun_device.get_stream_descriptor().async_read_some(boost::asio::buffer(buf, sizeof(buf)), write_lambda);
+		}; // lambda
+		tun_device.get_stream_descriptor().async_read_some(boost::asio::buffer(buf, sizeof(buf)), write_lambda);
+
 		while (1) {
 			++loop_nr;
 			ssize_t size_read_tun=0, size_read_udp=0;
 			const unsigned char xorpass=42;
-			auto size_read=0;
+			int size_read = tun_device.send_data_size.exchange(0);
 			//size_read += read(m_tun_fd, buf, sizeof(buf));
-			size_read += tun_device.get_stream_descriptor().read_some(boost::asio::buffer(buf, sizeof(buf)));
+			//size_read += tun_device.get_stream_descriptor().read_some(boost::asio::buffer(buf, sizeof(buf)));
 			const int mark1_pos = 52;
 			bool mark_ok = true;
 			if (!(  (buf[mark1_pos]==100) && (buf[mark1_pos+1]==101) &&  (buf[mark1_pos+2]==102)  )) mark_ok=false;
@@ -217,7 +233,7 @@ int main(int argc, char **argv) {
 				if (packet_index >= global_config_end_after_packet ) {
 					cout << "LIMIT - END " << endl << endl;
 					std::cout << "Limit - ending test\n";
-					break ;
+//					break ;
 				} // <====== RET
 
 				packet_check.see_packet(packet_index);
@@ -261,22 +277,22 @@ int main(int argc, char **argv) {
 			printed = printed || printed_big;
 			if (printed_big) packet_check.print();
 			counter_all.tick(size_read_tun, std::cout, true);
-		}
+		} // while
 
 		std::cout << "Loop done\n";
-	};
-	if (number_of_threads > 10 && number_of_threads > 0)
+//	};
+/*	if (number_of_threads > 10 && number_of_threads > 0)
 		number_of_threads = 1;
 
 	std::vector<std::thread> threads(number_of_threads - 1);
-	for(int i = 0; i< number_of_threads - 1; i++)
-		threads[i] = std::thread([&](){loop();});
+	for(int i = 0; i< number_of_threads - 1; i++){}
+	//	threads[i] = std::thread([&](){loop();});
 
-	loop();
+//	loop();
 
 	for(int i = 0; i< number_of_threads - 1; i++)
 		threads[i].join();
-
+*/
 	std::cout << endl << endl;
 	counter_all.print(std::cout);
 	packet_check.print();
